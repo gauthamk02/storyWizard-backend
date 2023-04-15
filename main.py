@@ -117,7 +117,7 @@ def save_story(title: str, story: str, img: str, img_filename: str):
         "id": [len(stories_df)+1],
         "title": [title],
         "story": [story],
-        "img": [img_filename]
+        "img": [request.root_url + 'images/' + title + '.png']
     })
 
     stories_df = pd.concat([stories_df, temp_df], ignore_index=True)
@@ -210,6 +210,10 @@ def get_n_stories():
     return jsonify({'stories': stories})
 
 
+@app.route('/get_story_count', methods=['GET'])
+def get_story_count():
+    return jsonify({'count': len(stories_df)})
+
 @app.route('/get_followup', methods=['GET'])
 def get_followup():
     session_id = json.loads(request.data)['session_id']
@@ -217,7 +221,6 @@ def get_followup():
     question = json.loads(request.data)['question']
     response = get_followup_response(session_id, story_id, question)
     return jsonify({'response': response})
-
 
 if __name__ == '__main__':
     app.run(debug=True)
