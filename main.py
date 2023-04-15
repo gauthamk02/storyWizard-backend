@@ -10,11 +10,9 @@ import numpy as np
 # Add cors
 from flask_cors import CORS
 
-
 openai.api_key = os.getenv("OPENAI_API_KEY")
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
-
 
 stories_file = 'data/stories.csv'
 session_file = 'data/session.csv'
@@ -41,7 +39,6 @@ if not os.path.exists(session_file):
 stories_df = pd.read_csv(stories_file)
 session_df = pd.read_csv(session_file)
 
-
 def generate_story(topic: str) -> str:
     completion = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
@@ -58,7 +55,6 @@ def generate_story(topic: str) -> str:
 
     return title, story
 
-
 def generate_prompts(story: str):
     completion = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
@@ -69,7 +65,6 @@ def generate_prompts(story: str):
     content = completion.choices[0].message.content
     content = content.encode().decode('unicode_escape')
     return content
-
 
 def generate_image(prompt: str):
     engine_id = "stable-diffusion-512-v2-1"
@@ -111,7 +106,6 @@ def generate_image(prompt: str):
 
         return image["base64"]
 
-
 def save_story(title: str, story: str, img: str, img_filename: str):
 
     with open(img_filename, "wb") as f:
@@ -128,7 +122,6 @@ def save_story(title: str, story: str, img: str, img_filename: str):
 
     stories_df = pd.concat([stories_df, temp_df], ignore_index=True)
     stories_df.to_csv(stories_file, index=False)
-
 
 def get_followup_response(session_id: int, story_id: int, question: str):
     global session_df
@@ -182,16 +175,13 @@ def get_followup_response(session_id: int, story_id: int, question: str):
 
     return content
 
-
 @app.route('/', methods=['GET'])
 def index():
     return jsonify({'message': 'Hello World!'})
 
-
 @app.route('/images/<path:path>', methods=['GET'])
 def get_image(path):
     return send_from_directory('images', path)
-
 
 @app.route('/generate', methods=['GET'])
 def generate():
@@ -208,6 +198,11 @@ def generate():
 
     return jsonify({'title': title, 'story': story, 'img': request.root_url + 'images/' + title + '.png'})
 
+@app.route('/get_story', methods=['GET'])
+def get_story():
+    story_id = int(request.args.get('id'))
+    story = stories_df[stories_df['id'] == story_id].to_dict('records')
+    return jsonify({'story': story})
 
 @app.route('/get_n_stories', methods=['GET'])
 def get_n_stories():
@@ -215,11 +210,9 @@ def get_n_stories():
     stories = stories_df.sample(n=n).to_dict('records')
     return jsonify({'stories': stories})
 
-
 @app.route('/get_story_count', methods=['GET'])
 def get_story_count():
     return jsonify({'count': len(stories_df)})
-
 
 @app.route('/get_followup', methods=['GET'])
 def get_followup():
@@ -228,7 +221,6 @@ def get_followup():
     question = request.args.get('question')
     response = get_followup_response(session_id, story_id, question)
     return jsonify({'response': response})
-
 
 if __name__ == '__main__':
     app.run(debug=True)
