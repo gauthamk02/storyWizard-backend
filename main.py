@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, json
+from flask import Flask, jsonify, request, json, send_from_directory
 import os
 import openai
 import pandas as pd
@@ -35,13 +35,14 @@ if not os.path.exists(session_file):
 stories_df = pd.read_csv(stories_file)
 session_df = pd.read_csv(session_file)
 
+
 def generate_story(topic: str) -> str:
     completion = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
-                {"role": "user", "content": f"Generate a 4 paragraph children's story with title about {topic} that contains a moral."}
-            ]
-        )
+            {"role": "user", "content": f"Generate a 4 paragraph children's story with title about {topic} that contains a moral."}
+        ]
+    )
     content = completion.choices[0].message.content
     content = content.encode().decode('unicode_escape')
     title = content.split('\n')[0]
@@ -51,16 +52,18 @@ def generate_story(topic: str) -> str:
 
     return title, story
 
+
 def generate_prompts(story: str):
     completion = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
-                {"role": "user", "content": f"Create one text to image prompts that will be suitable as the title image of the below given story. Do not include the character names, instead include only the characters physical description.\n\n{story}"}
-            ]
-        )
+            {"role": "user", "content": f"Create one text to image prompts that will be suitable as the title image of the below given story. Do not include the character names, instead include only the characters physical description.\n\n{story}"}
+        ]
+    )
     content = completion.choices[0].message.content
     content = content.encode().decode('unicode_escape')
     return content
+
 
 def generate_image(prompt: str):
     engine_id = "stable-diffusion-512-v2-1"
@@ -93,18 +96,19 @@ def generate_image(prompt: str):
     )
 
     if response.status_code != 200:
-        raise Exception("Non-200 response for image generation: " + str(response.text))
+        raise Exception(
+            "Non-200 response for image generation: " + str(response.text))
 
     data = response.json()
 
     for i, image in enumerate(data["artifacts"]):
 
-            return image["base64"]
+        return image["base64"]
 
-def save_story(title: str, story: str, img: str):
-    
-    img_file = f"./images/{title}.png"
-    with open(img_file, "wb") as f:
+
+def save_story(title: str, story: str, img: str, img_filename: str):
+
+    with open(img_filename, "wb") as f:
         f.write(base64.b64decode(img))
 
     global stories_df
@@ -113,11 +117,12 @@ def save_story(title: str, story: str, img: str):
         "id": [len(stories_df)+1],
         "title": [title],
         "story": [story],
-        "img": [img_file]
-    })       
-    
+        "img": [img_filename]
+    })
+
     stories_df = pd.concat([stories_df, temp_df], ignore_index=True)
     stories_df.to_csv(stories_file, index=False)
+
 
 def get_followup_response(session_id: int, story_id: int, question: str):
     global session_df
@@ -130,7 +135,7 @@ def get_followup_response(session_id: int, story_id: int, question: str):
                  "user to ask questions related to the story."\
                  "\n\n"\
                  f"Story: {story}"
-    
+
     temp_df = pd.DataFrame({
         "id": [len(session_df)+1],
         "sess_id": [session_id],
@@ -141,7 +146,8 @@ def get_followup_response(session_id: int, story_id: int, question: str):
 
     session_df = pd.concat([session_df, temp_df], ignore_index=True)
 
-    messages = session_df[session_df['sess_id'] == session_id][["id", "role", "content"]]
+    messages = session_df[session_df['sess_id']
+                          == session_id][["id", "role", "content"]]
     messages = messages.sort_values(by=['id'])
     messages = messages[['role', 'content']]
     messages = messages.to_dict('records')
@@ -149,11 +155,11 @@ def get_followup_response(session_id: int, story_id: int, question: str):
     completion = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
-                {"role": "system", "content": system_msg},
-                *messages
-            ]
-        )
-    
+            {"role": "system", "content": system_msg},
+            *messages
+        ]
+    )
+
     content = completion.choices[0].message.content
     content = content.encode().decode('unicode_escape')
 
@@ -170,9 +176,16 @@ def get_followup_response(session_id: int, story_id: int, question: str):
 
     return content
 
+
 @app.route('/', methods=['GET'])
 def index():
     return jsonify({'message': 'Hello World!'})
+
+
+@app.route('/images/<path:path>', methods=['GET'])
+def get_image(path):
+    return send_from_directory('images', path)
+
 
 @app.route('/generate', methods=['GET'])
 def generate():
@@ -184,15 +197,18 @@ def generate():
     print(f"Prompts: {prompts}")
     img = generate_image(prompts)
     print("Image generated")
-    save_story(title, story, img)
+    img_filenme = f"./images/{title}.png"
+    save_story(title, story, img, img_filenme)
 
-    return jsonify({'title': title, 'story': story, 'img': img})
+    return jsonify({'title': title, 'story': story, 'img': request.root_url + 'images/' + title + '.png'})
+
 
 @app.route('/get_n_stories', methods=['GET'])
 def get_n_stories():
     n = json.loads(request.data)['n']
     stories = stories_df.sample(n=n).to_dict('records')
     return jsonify({'stories': stories})
+
 
 @app.route('/get_followup', methods=['GET'])
 def get_followup():
@@ -201,6 +217,7 @@ def get_followup():
     question = json.loads(request.data)['question']
     response = get_followup_response(session_id, story_id, question)
     return jsonify({'response': response})
+
 
 if __name__ == '__main__':
     app.run(debug=True)
