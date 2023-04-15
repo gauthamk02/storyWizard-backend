@@ -6,10 +6,11 @@ import base64
 import os
 import requests
 import numpy as np
+import google.cloud.texttospeech as tts
 
-# Add cors
 from flask_cors import CORS
 
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'service.json'
 openai.api_key = os.getenv("OPENAI_API_KEY")
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -175,6 +176,29 @@ def get_followup_response(session_id: int, story_id: int, question: str):
 
     return content
 
+def text_to_wav(text: str, title, dest, voice_name = "en-IN-Wavenet-A"):
+    language_code = "-".join(voice_name.split("-")[:2])
+    text_input = tts.SynthesisInput(text=text)
+    voice_params = tts.VoiceSelectionParams(
+        language_code=language_code, name=voice_name
+    )
+    audio_config = tts.AudioConfig(audio_encoding=tts.AudioEncoding.LINEAR16,
+                                   speaking_rate=0.8)
+
+    client = tts.TextToSpeechClient()
+    response = client.synthesize_speech(
+        input=text_input,
+        voice=voice_params,
+        audio_config=audio_config,
+    )
+
+    filename = f"{dest + '/' + title}.wav"
+    with open(filename, "wb") as out:
+        out.write(response.audio_content)
+        print(f'Generated speech saved to "{filename}"')
+
+    return filename
+
 @app.route('/', methods=['GET'])
 def index():
     return jsonify({'message': 'Hello World!'})
@@ -182,6 +206,10 @@ def index():
 @app.route('/images/<path:path>', methods=['GET'])
 def get_image(path):
     return send_from_directory('images', path)
+
+@app.route('/audios/<path:path>', methods=['GET'])
+def get_audio(path):
+    return send_from_directory('audios', path)
 
 @app.route('/generate', methods=['GET'])
 def generate():
@@ -193,10 +221,13 @@ def generate():
     print(f"Prompts: {prompts}")
     img = generate_image(prompts)
     print("Image generated")
+    audio_file = text_to_wav(story, title, "./audios")
+    print("Audio generated")
     img_filenme = f"./images/{title}.png"
     save_story(title, story, img, img_filenme)
 
-    return jsonify({'title': title, 'story': story, 'img': request.root_url + 'images/' + title + '.png'})
+    return jsonify({'title': title, 'story': story, "id": len(stories_df) + 1,
+                     'img': request.root_url + 'images/' + title + '.png', 'audio': request.root_url + 'audios/' + title + '.wav'})
 
 @app.route('/get_story', methods=['GET'])
 def get_story():
@@ -223,4 +254,5 @@ def get_followup():
     return jsonify({'response': response})
 
 if __name__ == '__main__':
+
     app.run(debug=True)
