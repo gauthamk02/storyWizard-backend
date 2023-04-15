@@ -3,14 +3,37 @@ import os
 import openai
 import pandas as pd
 import base64
-import pickle
 import os
 import requests
+import numpy as np
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 app = Flask(__name__)
 
-df = pd.read_csv('data.csv')
+stories_file = 'data/stories.csv'
+session_file = 'data/session.csv'
+
+if not os.path.exists(stories_file):
+    df = pd.DataFrame({
+        "id": [],
+        "title": [],
+        "story": [],
+        "img": []
+    })
+    df.to_csv(stories_file, index=False)
+
+if not os.path.exists(session_file):
+    df = pd.DataFrame({
+        "id": [],
+        "sess_id": [],
+        "story_id": [],
+        "role": [],
+        "content": []
+    })
+    df.to_csv(session_file, index=False)
+
+stories_df = pd.read_csv(stories_file)
+session_df = pd.read_csv(session_file)
 
 def generate_story(topic: str) -> str:
     completion = openai.ChatCompletion.create(
@@ -80,22 +103,72 @@ def generate_image(prompt: str):
 
 def save_story(title: str, story: str, img: str):
     
-    #save img to images folder
     img_file = f"./images/{title}.png"
     with open(img_file, "wb") as f:
         f.write(base64.b64decode(img))
 
-    global df
+    global stories_df
 
     temp_df = pd.DataFrame({
-        "id": [len(df)+1],
+        "id": [len(stories_df)+1],
         "title": [title],
         "story": [story],
         "img": [img_file]
     })       
     
-    df = pd.concat([df, temp_df], ignore_index=True)
-    df.to_csv('data.csv', index=False)
+    stories_df = pd.concat([stories_df, temp_df], ignore_index=True)
+    stories_df.to_csv(stories_file, index=False)
+
+def get_followup_response(session_id: int, story_id: int, question: str):
+    global session_df
+
+    story = stories_df[stories_df['id'] == story_id]['story'].values[0]
+    system_msg = f"You are an assistant that answers the questions to the children's "\
+                 "story given below. You should answer the questions descriptively in a "\
+                 "way that a child can understand them. If the question asked is unrelated "\
+                 "to the story, do not answer the question and instead reply by asking the "\
+                 "user to ask questions related to the story."\
+                 "\n\n"\
+                 f"Story: {story}"
+    
+    temp_df = pd.DataFrame({
+        "id": [len(session_df)+1],
+        "sess_id": [session_id],
+        "story_id": [story_id],
+        "role": ["user"],
+        "content": [question]
+    })
+
+    session_df = pd.concat([session_df, temp_df], ignore_index=True)
+
+    messages = session_df[session_df['sess_id'] == session_id][["id", "role", "content"]]
+    messages = messages.sort_values(by=['id'])
+    messages = messages[['role', 'content']]
+    messages = messages.to_dict('records')
+
+    completion = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+                {"role": "system", "content": system_msg},
+                *messages
+            ]
+        )
+    
+    content = completion.choices[0].message.content
+    content = content.encode().decode('unicode_escape')
+
+    temp_df = pd.DataFrame({
+        "id": [len(session_df)+1],
+        "sess_id": [session_id],
+        "story_id": [story_id],
+        "role": ["assistant"],
+        "content": [content]
+    })
+
+    session_df = pd.concat([session_df, temp_df], ignore_index=True)
+    session_df.to_csv(session_file, index=False)
+
+    return content
 
 @app.route('/', methods=['GET'])
 def index():
@@ -118,8 +191,16 @@ def generate():
 @app.route('/get_n_stories', methods=['GET'])
 def get_n_stories():
     n = json.loads(request.data)['n']
-    stories = df.sample(n=n).to_dict('records')
+    stories = stories_df.sample(n=n).to_dict('records')
     return jsonify({'stories': stories})
+
+@app.route('/get_followup', methods=['GET'])
+def get_followup():
+    session_id = json.loads(request.data)['session_id']
+    story_id = json.loads(request.data)['story_id']
+    question = json.loads(request.data)['question']
+    response = get_followup_response(session_id, story_id, question)
+    return jsonify({'response': response})
 
 if __name__ == '__main__':
     app.run(debug=True)
