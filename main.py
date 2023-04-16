@@ -65,6 +65,9 @@ def generate_prompts(story: str):
     )
     content = completion.choices[0].message.content
     content = content.encode().decode('unicode_escape')
+    if ':' in content:
+        content = content[content.find(':')+1:]
+    content = content.strip()
     return content
 
 def generate_image(prompt: str):
@@ -107,7 +110,7 @@ def generate_image(prompt: str):
 
         return image["base64"]
 
-def save_story(title: str, story: str, img: str, img_filename: str):
+def save_story(title: str, story: str, img: str, img_filename: str, audio_filename: str):
 
     with open(img_filename, "wb") as f:
         f.write(base64.b64decode(img))
@@ -118,7 +121,8 @@ def save_story(title: str, story: str, img: str, img_filename: str):
         "id": [len(stories_df)+1],
         "title": [title],
         "story": [story],
-        "img": [request.root_url + 'images/' + title + '.png']
+        "img": [request.root_url + 'images/' + title + '.png'],
+        "audio": [request.root_url + 'audio/' + title + '.mp3']
     })
 
     stories_df = pd.concat([stories_df, temp_df], ignore_index=True)
@@ -223,10 +227,10 @@ def generate():
     print("Image generated")
     audio_file = text_to_wav(story, title, "./audios")
     print("Audio generated")
-    img_filenme = f"./images/{title}.png"
-    save_story(title, story, img, img_filenme)
+    img_filename = f"./images/{title}.png"
+    save_story(title, story, img, img_filename, audio_file)
 
-    return jsonify({'title': title, 'story': story, "id": len(stories_df) + 1,
+    return jsonify({'title': title, 'story': story, "id": len(stories_df),
                      'img': request.root_url + 'images/' + title + '.png', 'audio': request.root_url + 'audios/' + title + '.wav'})
 
 @app.route('/get_story', methods=['GET'])
@@ -251,6 +255,39 @@ def get_followup():
     story_id = int(request.args.get('story_id'))
     question = request.args.get('question')
     response = get_followup_response(session_id, story_id, question)
+    return jsonify({'response': response})
+
+def transcribe_file(audio):
+    """Transcribe the given audio file."""
+    from google.cloud import speech
+    import io
+
+    client = speech.SpeechClient()
+
+    audio = speech.RecognitionAudio(content=audio)
+    config = speech.RecognitionConfig(
+        encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+        sample_rate_hertz=16000,
+        language_code="en-US",
+    )
+
+    response = client.recognize(config=config, audio=audio)
+
+    # Each result is for a consecutive portion of the audio. Iterate through
+    # them to get the transcripts for the entire audio file.
+    for result in response.results:
+        # The first alternative is the most likely one for this portion.
+        print("Transcript: {}".format(result.alternatives[0].transcript))
+        return result.alternatives[0].transcript
+
+@app.route('/post_followup_audio', methods=['POST'])
+def get_text():
+    # get the audio file
+    audio_file = request.files['audio']
+    sess_id = request.form['session_id']
+    story_id = request.form['story_id']
+    text = transcribe_file(audio_file.read())
+    response = get_followup_response(sess_id, story_id, text)
     return jsonify({'response': response})
 
 if __name__ == '__main__':
