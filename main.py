@@ -255,19 +255,19 @@ def get_followup():
     story_id = int(request.args.get('story_id'))
     question = request.args.get('question')
     response = get_followup_response(session_id, story_id, question)
-    return jsonify({'response': response})
+    audio_file = text_to_wav(response, f"temp", "./audios")
+    return jsonify({'response': response, 'audio': request.root_url + 'audios/' + 'temp' + '.wav'})
 
 def transcribe_file(audio):
     """Transcribe the given audio file."""
     from google.cloud import speech
-    import io
 
     client = speech.SpeechClient()
 
     audio = speech.RecognitionAudio(content=audio)
     config = speech.RecognitionConfig(
         encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-        sample_rate_hertz=16000,
+        sample_rate_hertz=48000,
         language_code="en-US",
     )
 
@@ -282,11 +282,13 @@ def transcribe_file(audio):
 
 @app.route('/post_followup_audio', methods=['POST'])
 def get_text():
-    # get the audio file
+    # get the audio data from form
     audio_file = request.files['audio']
     sess_id = request.form['session_id']
     story_id = request.form['story_id']
     text = transcribe_file(audio_file.read())
+    if text is None:
+        return jsonify({'response': 'Sorry, I could not understand you. Please try again.'})
     response = get_followup_response(sess_id, story_id, text)
     return jsonify({'response': response})
 
