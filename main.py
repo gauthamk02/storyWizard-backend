@@ -122,7 +122,7 @@ def save_story(title: str, story: str, img: str, img_filename: str, audio_filena
         "title": [title],
         "story": [story],
         "img": [request.root_url + 'images/' + title + '.png'],
-        "audio": [request.root_url + 'audio/' + title + '.mp3']
+        "audio": [request.root_url + 'audios/' + title + '.wav']
     })
 
     stories_df = pd.concat([stories_df, temp_df], ignore_index=True)
